@@ -67,6 +67,9 @@ export default function RootLayout ({ children}: {children: React.ReactNode}){
                   <Link href="/riwayat" className="h-16 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-900 flex items-center transition-colors">
                     Riwayat
                   </Link>
+                  <Link href="/subscription" className="h-16 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-900 flex items-center transition-colors">
+                    Subscription
+                  </Link>
                 </nav>
               </div>
 

@@ -21,4 +21,16 @@ model Inspection {
   anomalies    String  
   createdAt    DateTime @default(now())
   userId       String?
+  midtransCustomerId String? @unique
+  subscriptionStatus String? @default("Free") // "Free" atau "Premium"
+  subscriptionEndsAt DateTime?
+}
+model User {
+  id String @id @default(cuid())
+  name String?
+  email String? @unique
+  emailVerified DateTime?
+  image String?
+  subscriptionStatus String @default("Free")
+  subscriptionEndsAt DateTime?
 }
