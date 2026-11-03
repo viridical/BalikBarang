@@ -33,4 +33,6 @@ model User {
   image String?
   subscriptionStatus String @default("Free")
   subscriptionEndsAt DateTime?
+
+  @@map("user")
 }
