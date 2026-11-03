@@ -1,3 +1,4 @@
+
 "use client";
 
 import Script from "next/script";
@@ -7,140 +8,311 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, Crown } from "lucide-react";
 
-export default function SubscriptionPage() {
-  const { data: session } = useSession();
-  const [isLoading, setIsLoading] = useState(false);
-  const [isChecking, setIsChecking] = useState(true);
-  const [subscription, setSubscription] = useState<{ status: string; endsAt: string | null } | null>(null);
+declare global {
+  interface Window {
+    snap?: {
+      pay: (
+        token: string,
+        callbacks?: {
+          onSuccess?: (result: unknown) => void;
+          onPending?: (result: unknown) => void;
+          onError?: (result: unknown) => void;
+          onClose?: () => void;
+        }
+      ) => void;
+    };
+  }
+}
 
-  // Fungsi untuk mengecek status
+const delay = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+export default function SubscriptionPage() {
+  const { data: session, status: sessionStatus } = useSession();
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSnapReady, setIsSnapReady] = useState(false);
+  const [isChecking, setIsChecking] = useState(true);
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  const [subscription, setSubscription] = useState<{
+    status: string;
+    endsAt: string | null;
+  } | null>(null);
+
   const checkSubscription = useCallback(async () => {
-    if (!session?.user?.email) return;
+    if (!session?.user?.email) return null;
+
     try {
-      const res = await fetch(`/api/user/subscription?email=${session.user.email}`, {
-        cache: 'no-store' // Pastikan tidak mengambil dari cache
+      const res = await fetch("/api/user/subscription", {
+        method: "GET",
+        cache: "no-store",
       });
+
+      if (!res.ok) {
+        throw new Error("Gagal mengambil status subscription");
+      }
+
       const data = await res.json();
+
       setSubscription(data);
+
       return data;
     } catch (error) {
-      console.error("Gagal mengecek langganan:", error);
+      console.error("Subscription Error:", error);
+      return null;
     }
-  }, [session]);
+  }, [session?.user?.email]);
 
-  // Cek status saat pertama kali dimuat
+  // Pemeriksaan awal
   useEffect(() => {
-    if (session?.user?.email) {
-      checkSubscription().finally(() => setIsChecking(false));
-    } else {
+    if (sessionStatus === "loading") return;
+
+    if (!session?.user?.email) {
       setIsChecking(false);
+      return;
     }
-  }, [session, checkSubscription]);
+
+    let cancelled = false;
+
+    checkSubscription().finally(() => {
+      if (!cancelled) setIsChecking(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, sessionStatus, checkSubscription]);
+
+  // Polling setelah pembayaran
+  const verifySubscription = async () => {
+    setIsVerifying(true);
+
+    for (let i = 0; i < 20; i++) {
+      const data = await checkSubscription();
+
+      if (
+        data?.status === "Premium" &&
+        data?.endsAt &&
+        new Date(data.endsAt).getTime() > Date.now()
+      ) {
+        setIsVerifying(false);
+        setIsLoading(false);
+
+        alert("Pembayaran berhasil! Akun lu sekarang Premium.");
+
+        return true;
+      }
+
+      await delay(2000);
+    }
+
+    setIsVerifying(false);
+    setIsLoading(false);
+
+    alert(
+      "Pembayaran sedang diproses. Status Premium akan muncul setelah server menerima konfirmasi pembayaran."
+    );
+
+    return false;
+  };
 
   const handleSubscribe = async () => {
+    if (isLoading) return;
+
+    if (!session?.user?.email) {
+      alert("Silakan login terlebih dahulu.");
+      return;
+    }
+
+    if (!isSnapReady || !window.snap?.pay) {
+      alert("Midtrans belum siap. Silakan coba kembali.");
+      return;
+    }
+
     setIsLoading(true);
+
     try {
       const res = await fetch("/api/payment", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: `SUB-${Date.now()}`,
-          grossAmount: 99000,
-          customerEmail: session?.user?.email,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
       });
+
       const data = await res.json();
 
-      if (data.token && (window as any).snap) {
-        (window as any).snap.pay(data.token, {
-          onSuccess: function () {
-            alert("Pembayaran Berhasil! Mohon tunggu sebentar, status sedang diperbarui...");
-            
-            // POLLING: Cek status setiap 2 detik, maksimal 5 kali
-            let attempts = 0;
-            const interval = setInterval(async () => {
-              attempts++;
-              const result = await checkSubscription();
-              
-              if (result?.status === "Premium" || attempts >= 5) {
-                clearInterval(interval);
-                if (result?.status !== "Premium") {
-                  alert("Status belum diperbarui. Silakan refresh halaman secara manual.");
-                }
-              }
-            }, 2000);
-          },
-          onPending: function () {
-            alert("Menunggu Pembayaran");
-          },
-          onError: function () {
-            alert("Pembayaran Gagal!");
-          },
-        });
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal membuat transaksi");
       }
+
+      if (!data.token) {
+        throw new Error("Snap token tidak ditemukan");
+      }
+
+      if (!window.snap?.pay) {
+        throw new Error("Midtrans Snap tidak tersedia");
+      }
+
+      window.snap.pay(data.token, {
+        onSuccess: async (result) => {
+          console.log("Payment Success:", result);
+
+          await verifySubscription();
+        },
+
+        onPending: async (result) => {
+          console.log("Payment Pending:", result);
+
+          setIsLoading(false);
+
+          alert("Pembayaran sedang menunggu konfirmasi.");
+
+          // Tetap cek jika pembayaran segera diselesaikan.
+          await verifySubscription();
+        },
+
+        onError: (result) => {
+          console.error("Payment Failed:", result);
+
+          setIsLoading(false);
+          alert("Pembayaran gagal.");
+        },
+
+        onClose: () => {
+          console.log("Popup Midtrans ditutup");
+
+          setIsLoading(false);
+        },
+      });
     } catch (error) {
-      console.error(error);
-      alert("Terjadi kesalahan sistem.");
-    } finally {
+      console.error("Payment Error:", error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan pembayaran."
+      );
+
       setIsLoading(false);
     }
   };
 
-  if (isChecking) {
-    return <div className="p-8 text-center text-gray-500">Memeriksa status langganan...</div>;
+  if (isChecking || sessionStatus === "loading") {
+    return (
+      <div className="p-8 text-center text-gray-500">
+        Memeriksa status langganan...
+      </div>
+    );
   }
 
-  const isPremium = subscription?.status === "Premium";
+  const isPremium =
+    subscription?.status === "Premium" &&
+    !!subscription.endsAt &&
+    new Date(subscription.endsAt).getTime() > Date.now();
+
+  const snapSrc =
+    process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION === "true"
+      ? "https://app.midtrans.com/snap/snap.js"
+      : "https://app.sandbox.midtrans.com/snap/snap.js";
 
   return (
     <div className="p-8">
       <Script
-        src="https://app.sandbox.midtrans.com/snap/snap.js"
-        data-client-key={process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY}
-        strategy="beforeInteractive"
+        id="midtrans-snap"
+        src={snapSrc}
+        data-client-key={
+          process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY
+        }
+        strategy="afterInteractive"
+        onReady={() => {
+          console.log("Snap script ready:", !!window.snap?.pay);
+          setIsSnapReady(!!window.snap?.pay);
+        }}
+        onError={() => {
+          console.error("Gagal memuat Snap.js");
+          setIsSnapReady(false);
+        }}
       />
 
       <div className="text-center mb-12">
-        <h1 className="text-3xl font-serif font-bold text-gray-900">Langganan Premium</h1>
-        <p className="text-gray-500 mt-2">Dapatkan akses tanpa batas ke fitur analisis AI.</p>
+        <h1 className="text-3xl font-serif font-bold text-gray-900">
+          Langganan Premium
+        </h1>
+
+        <p className="text-gray-500 mt-2">
+          Dapatkan akses tanpa batas ke fitur analisis AI.
+        </p>
       </div>
 
       <Card className="max-w-md mx-auto border-gray-200 shadow-sm">
         <CardContent className="p-8 text-center">
-          <h2 className="text-2xl font-bold text-[#7a1b2f] mb-2">Pro Plan</h2>
+          <h2 className="text-2xl font-bold text-[#7a1b2f] mb-2">
+            Pro Plan
+          </h2>
+
           <div className="text-4xl font-bold text-gray-900 mb-6">
-            Rp 99.000<span className="text-sm font-normal text-gray-500">/bulan</span>
+            Rp 99.000
+            <span className="text-sm font-normal text-gray-500">
+              /bulan
+            </span>
           </div>
 
           <ul className="text-left text-sm text-gray-600 space-y-2 mb-8">
             <li className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-green-500" /> Unlimited analisis AI
+              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              Unlimited analisis AI
             </li>
+
             <li className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-green-500" /> Riwayat tak terbatas
+              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              Riwayat tak terbatas
             </li>
+
             <li className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-green-500" /> Prioritas dukungan
+              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              Prioritas dukungan
             </li>
           </ul>
 
           {isPremium ? (
             <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-green-700">
-              <div className="flex items-center justify-center gap-2 font-bold mb-1">
-                <Crown className="w-5 h-5" /> Anda Sudah Premium!
+              <div className="flex items-center justify-center gap-2 font-bold mb-2">
+                <Crown className="w-5 h-5" />
+                Anda Sudah Premium!
               </div>
-              <p className="text-xs">
-                Masa aktif hingga:{" "}
-                {new Date(subscription.endsAt!).toLocaleDateString("id-ID", { dateStyle: "long" })}
+
+              <p className="text-sm">
+                Status: Aktif
+              </p>
+
+              <p className="text-xs mt-1">
+                Berlaku hingga:
+                {" "}
+                {new Date(subscription!.endsAt!).toLocaleDateString(
+                  "id-ID",
+                  { dateStyle: "long" }
+                )}
               </p>
             </div>
           ) : (
             <Button
               onClick={handleSubscribe}
-              disabled={isLoading}
+              disabled={
+                isLoading ||
+                !isSnapReady ||
+                isVerifying
+              }
               className="w-full bg-[#7a1b2f] hover:bg-[#5c1423] text-white h-12"
             >
-              {isLoading ? "Memproses..." : "Berlangganan Sekarang"}
+              {isVerifying
+                ? "Memverifikasi Pembayaran..."
+                : isLoading
+                  ? "Memproses..."
+                  : !isSnapReady
+                    ? "Memuat Pembayaran..."
+                    : "Berlangganan Sekarang"}
             </Button>
           )}
         </CardContent>

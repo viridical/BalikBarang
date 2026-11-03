@@ -1,43 +1,71 @@
-import { NextResponse } from 'next/server';
-import { PrismaClient } from '@/generated/prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import "dotenv/config";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
-const prisma = new PrismaClient({ adapter });
+import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 
-export const dynamic = 'force-dynamic'; // Pastikan tidak di-cache
+export const runtime = "nodejs";
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(req.url);
-    const email = searchParams.get('email');
-    
-    if (!email) {
-      return NextResponse.json({ error: 'Email diperlukan' }, { status: 400 });
+    const session = await auth();
+
+    if (!session?.user?.email) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
     }
-    
+
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: {
+        email: session.user.email,
+      },
+      select: {
+        subscriptionStatus: true,
+        subscriptionEndsAt: true,
+      },
     });
-    
+
     if (!user) {
-      return NextResponse.json({ error: 'User tidak ditemukan' }, { status: 404 });
+      return NextResponse.json(
+        { error: "User tidak ditemukan" },
+        { status: 404 }
+      );
     }
-    
-    const isPremium = 
-      user.subscriptionStatus === 'Premium' && 
-      user.subscriptionEndsAt && 
-      new Date(user.subscriptionEndsAt) > new Date();
-    
+
+    const isPremium =
+      user.subscriptionStatus === "Premium" &&
+      user.subscriptionEndsAt !== null &&
+      user.subscriptionEndsAt > new Date();
+
+    // Jika masa aktif habis, ubah kembali menjadi Free.
+    if (
+      user.subscriptionStatus === "Premium" &&
+      !isPremium
+    ) {
+      await prisma.user.update({
+        where: {
+          email: session.user.email,
+        },
+        data: {
+          subscriptionStatus: "Free",
+        },
+      });
+    }
+
     return NextResponse.json({
-      status: isPremium ? 'Premium' : 'Free',
-      subscriptionEndsAt: user.subscriptionEndsAt,
-    }, {
-      headers: { 'Cache-Control': 'no-store, max-age=0' } // Pastikan respons tidak di-cache
+      status: isPremium ? "Premium" : "Free",
+      endsAt: isPremium
+        ? user.subscriptionEndsAt
+        : null,
     });
+
   } catch (error) {
-    console.error("API Subscription Error:", error);
-    return NextResponse.json({ error: 'Gagal memuat data langganan' }, { status: 500 });
+    console.error("Subscription API Error:", error);
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }

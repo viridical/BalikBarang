@@ -1,36 +1,15 @@
+
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import { PrismaClient } from "@/generated/prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-import "dotenv/config";
-
-const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL!,
-});
-
-const prisma = new PrismaClient({ adapter });
-
-const useSecureCookies = process.env.NODE_ENV === "production";
+import { prisma } from "@/lib/prisma";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId: process.env.AUTH_GOOGLE_ID!,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET!,
     }),
   ],
-
-  cookies: {
-    pkceCodeVerifier: {
-      name: useSecureCookies ? "__Secure-authjs.pkce.code_verifier" : "authjs.pkce.code_verifier",
-      options: {
-        httpOnly: true,
-        sameSite: "none",
-        path: "/",
-        secure: useSecureCookies,
-      },
-    },
-  },
 
   callbacks: {
     async signIn({ user }) {
@@ -51,9 +30,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             image: user.image,
           },
         });
+
         return true;
       } catch (error) {
-        console.error("Gagal menyimpan user ke database:", error);
+        console.error("Gagal menyimpan user:", error);
         return false;
       }
     },
