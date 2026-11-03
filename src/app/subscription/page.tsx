@@ -40,6 +40,7 @@ export default function SubscriptionPage() {
     endsAt: string | null;
   } | null>(null);
 
+  // Mengambil status subscription
   const checkSubscription = useCallback(async () => {
     if (!session?.user?.email) return null;
 
@@ -54,7 +55,6 @@ export default function SubscriptionPage() {
       }
 
       const data = await res.json();
-
       setSubscription(data);
 
       return data;
@@ -84,39 +84,76 @@ export default function SubscriptionPage() {
     };
   }, [session, sessionStatus, checkSubscription]);
 
-  // Polling setelah pembayaran
-  const verifySubscription = async () => {
+  // Verifikasi pembayaran langsung ke backend
+  const verifyPayment = async (orderId: string) => {
     setIsVerifying(true);
 
-    for (let i = 0; i < 20; i++) {
-      const data = await checkSubscription();
+    try {
+      for (let i = 0; i < 10; i++) {
+        const res = await fetch("/api/payment/verify", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ orderId }),
+          cache: "no-store",
+        });
 
-      if (
-        data?.status === "Premium" &&
-        data?.endsAt &&
-        new Date(data.endsAt).getTime() > Date.now()
-      ) {
-        setIsVerifying(false);
-        setIsLoading(false);
+        const result = await res.json();
 
-        alert("Pembayaran berhasil! Akun lu sekarang Premium.");
+        if (!res.ok) {
+          throw new Error(
+            result.error || "Gagal memverifikasi pembayaran"
+          );
+        }
 
-        return true;
+        console.log("Payment Verification:", result);
+
+        if (result.status === "success") {
+          const data = await checkSubscription();
+
+          if (
+            data?.status === "Premium" &&
+            data?.endsAt &&
+            new Date(data.endsAt).getTime() > Date.now()
+          ) {
+            alert("Pembayaran berhasil! Akun lu sekarang Premium.");
+            return true;
+          }
+        }
+
+        if (
+          ["deny", "cancel", "expire"].includes(result.status)
+        ) {
+          alert(`Pembayaran ${result.status}.`);
+          return false;
+        }
+
+        await delay(2000);
       }
 
-      await delay(2000);
+      alert(
+        "Pembayaran belum terkonfirmasi. Silakan periksa kembali beberapa saat lagi."
+      );
+
+      return false;
+    } catch (error) {
+      console.error("Payment Verification Error:", error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Gagal memverifikasi pembayaran."
+      );
+
+      return false;
+    } finally {
+      setIsVerifying(false);
+      setIsLoading(false);
     }
-
-    setIsVerifying(false);
-    setIsLoading(false);
-
-    alert(
-      "Pembayaran sedang diproses. Status Premium akan muncul setelah server menerima konfirmasi pembayaran."
-    );
-
-    return false;
   };
 
+  // Memproses pembayaran
   const handleSubscribe = async () => {
     if (isLoading) return;
 
@@ -147,19 +184,15 @@ export default function SubscriptionPage() {
         throw new Error(data.error || "Gagal membuat transaksi");
       }
 
-      if (!data.token) {
-        throw new Error("Snap token tidak ditemukan");
-      }
-
-      if (!window.snap?.pay) {
-        throw new Error("Midtrans Snap tidak tersedia");
+      if (!data.token || !data.orderId) {
+        throw new Error("Token atau Order ID tidak ditemukan");
       }
 
       window.snap.pay(data.token, {
         onSuccess: async (result) => {
           console.log("Payment Success:", result);
 
-          await verifySubscription();
+          await verifyPayment(data.orderId);
         },
 
         onPending: async (result) => {
@@ -167,10 +200,7 @@ export default function SubscriptionPage() {
 
           setIsLoading(false);
 
-          alert("Pembayaran sedang menunggu konfirmasi.");
-
-          // Tetap cek jika pembayaran segera diselesaikan.
-          await verifySubscription();
+          alert("Pembayaran masih menunggu konfirmasi.");
         },
 
         onError: (result) => {
@@ -283,13 +313,10 @@ export default function SubscriptionPage() {
                 Anda Sudah Premium!
               </div>
 
-              <p className="text-sm">
-                Status: Aktif
-              </p>
+              <p className="text-sm">Status: Aktif</p>
 
               <p className="text-xs mt-1">
-                Berlaku hingga:
-                {" "}
+                Berlaku hingga:{" "}
                 {new Date(subscription!.endsAt!).toLocaleDateString(
                   "id-ID",
                   { dateStyle: "long" }
