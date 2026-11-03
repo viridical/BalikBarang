@@ -6,6 +6,8 @@ import "dotenv/config";
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
+export const dynamic = 'force-dynamic'; // Pastikan tidak di-cache
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -31,6 +33,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       status: isPremium ? 'Premium' : 'Free',
       subscriptionEndsAt: user.subscriptionEndsAt,
+    }, {
+      headers: { 'Cache-Control': 'no-store, max-age=0' } // Pastikan respons tidak di-cache
     });
   } catch (error) {
     console.error("API Subscription Error:", error);

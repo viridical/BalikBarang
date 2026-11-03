@@ -1,7 +1,7 @@
 "use client";
 
 import Script from "next/script";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,25 +13,29 @@ export default function SubscriptionPage() {
   const [isChecking, setIsChecking] = useState(true);
   const [subscription, setSubscription] = useState<{ status: string; endsAt: string | null } | null>(null);
 
-  const checkSubscription = async () => {
-    if (!session?.user?.email) {
-      setIsChecking(false);
-      return;
-    }
+  // Fungsi untuk mengecek status
+  const checkSubscription = useCallback(async () => {
+    if (!session?.user?.email) return;
     try {
-      const res = await fetch(`/api/user/subscription?email=${session.user.email}`);
+      const res = await fetch(`/api/user/subscription?email=${session.user.email}`, {
+        cache: 'no-store' // Pastikan tidak mengambil dari cache
+      });
       const data = await res.json();
       setSubscription(data);
+      return data;
     } catch (error) {
       console.error("Gagal mengecek langganan:", error);
-    } finally {
+    }
+  }, [session]);
+
+  // Cek status saat pertama kali dimuat
+  useEffect(() => {
+    if (session?.user?.email) {
+      checkSubscription().finally(() => setIsChecking(false));
+    } else {
       setIsChecking(false);
     }
-  };
-
-  useEffect(() => {
-    checkSubscription();
-  }, [session]);
+  }, [session, checkSubscription]);
 
   const handleSubscribe = async () => {
     setIsLoading(true);
@@ -50,10 +54,20 @@ export default function SubscriptionPage() {
       if (data.token && (window as any).snap) {
         (window as any).snap.pay(data.token, {
           onSuccess: function () {
-            alert("Pembayaran Berhasil! Status Anda akan diperbarui.");
-            // Tunggu 2 detik agar webhook selesai memproses, lalu cek ulang status
-            setTimeout(() => {
-              checkSubscription();
+            alert("Pembayaran Berhasil! Mohon tunggu sebentar, status sedang diperbarui...");
+            
+            // POLLING: Cek status setiap 2 detik, maksimal 5 kali
+            let attempts = 0;
+            const interval = setInterval(async () => {
+              attempts++;
+              const result = await checkSubscription();
+              
+              if (result?.status === "Premium" || attempts >= 5) {
+                clearInterval(interval);
+                if (result?.status !== "Premium") {
+                  alert("Status belum diperbarui. Silakan refresh halaman secara manual.");
+                }
+              }
             }, 2000);
           },
           onPending: function () {
