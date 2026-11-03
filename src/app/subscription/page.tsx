@@ -84,10 +84,16 @@ export default function SubscriptionPage() {
     return (
     <div className="p-8">
       <Script
-        src="https://app.sandbox.midtrans.com/snap/snap.js"
-        data-client-key={process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY}
-        strategy="beforeInteractive"
-      />
+      src="https://app.sandbox.midtrans.com/snap/snap.js"
+      data-client-key={process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY}
+      strategy="afterInteractive"
+      onLoad={() => {
+      console.log("Midtrans Snap berhasil dimuat");
+    }}
+      onError={() => {
+      console.error("Gagal memuat Midtrans Snap");
+    }}
+/>
 
       <div className="text-center mb-12">
         <h1 className="text-3xl font-serif font-bold text-gray-900">Langganan Premium</h1>
