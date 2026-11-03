@@ -32,49 +32,40 @@ export default function SubscriptionPage() {
         checkSubscription();
     }, [session]);
     const handleSubscribe = async () => {
-    setIsLoading(true);
+  setIsLoading(true);
+  try {
+    const res = await fetch("/api/payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        orderId: `SUB-${Date.now()}`,
+        grossAmount: 99000,
+        customerEmail: session?.user?.email,
+      }),
+    });
+    const data = await res.json();
 
-    try {
-        if (!session?.user?.email) {
-            throw new Error("User belum login");
-        }
-
-        const res = await fetch("/api/payment", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                orderId: `SUB-${Date.now()}`,
-                grossAmount: 99000,
-                customerEmail: session.user.email,
-            }),
-        });
-
-        const data = await res.json();
-
-        console.log("Payment response:", data);
-
-        if (!res.ok) {
-            throw new Error(data.error || "Gagal membuat pembayaran");
-        }
-
-        if (!data.token) {
-            throw new Error("Token Midtrans tidak ditemukan");
-        }
-
-        if (!(window as any).snap) {
-            throw new Error("Midtrans Snap belum dimuat");
-        }
-
-        (window as any).snap.pay(data.token);
-
-    } catch (error) {
-        console.error("Payment Error:", error);
-        alert(error instanceof Error ? error.message : "Terjadi kesalahan");
-    } finally {
-        setIsLoading(false);
+    if (data.token && (window as any).snap) {
+      (window as any).snap.pay(data.token, {
+        onSuccess: function () {
+          alert("Pembayaran Berhasil! Status Anda akan diperbarui.");
+          // Refresh halaman untuk memuat status terbaru dari database
+          window.location.reload();
+        },
+        onPending: function () {
+          alert("Menunggu Pembayaran");
+        },
+        onError: function () {
+          alert("Pembayaran Gagal!");
+        },
+      });
     }
+  } catch (error) {
+    console.error(error);
+    alert("Terjadi kesalahan sistem.");
+  } finally {
+    setIsLoading(false);
+  }
 };
     if (isChecking) {
         return <div className="p-8 text-center text-gray-500">Memeriksa status langganan...</div>;
