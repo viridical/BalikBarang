@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Home, Lock } from 'lucide-react';
 
-export default function LoginPage(){
+export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
       <Card className="w-full max-w-md shadow-lg border-0">
@@ -43,7 +43,11 @@ export default function LoginPage(){
             </div>
           </div>
 
-          <Button onClick={() => signIn('google',{callbackUrl:'/dashboard'})} className="w-full bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 h-12">
+          {/* PERUBAHAN DI SINI: callbackUrl menjadi redirectTo */}
+          <Button 
+            onClick={() => signIn('google', { redirectTo: '/dashboard' })} 
+            className="w-full bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 h-12"
+          >
             <Home className="mr-2 h-5 w-5" />
             Masuk dengan Akun Google
           </Button>
