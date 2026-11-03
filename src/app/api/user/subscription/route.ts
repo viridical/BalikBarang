@@ -7,6 +7,7 @@ const adapter = new PrismaPg ({connectionString: process.env.DATABASE_URL});
 const prisma = new PrismaClient ({ adapter });
 
 export async function GET(req: Request) {
+    try {
     const {searchParams} = new URL(req.url);
     const email = searchParams.get('email');
     if (!email) {
@@ -27,4 +28,8 @@ export async function GET(req: Request) {
         status: isPremium? 'Premium' : 'Free',
         subscriptionEndsAt: user.subscriptionEndsAt,
     });
+} catch (error) {
+    console.error("API Subscription Error:", error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+}
 }
