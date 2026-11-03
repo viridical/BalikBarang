@@ -26,13 +26,26 @@ model Inspection {
   subscriptionEndsAt DateTime?
 }
 model User {
-  id String @id @default(cuid())
-  name String?
-  email String? @unique
-  emailVerified DateTime?
-  image String?
-  subscriptionStatus String @default("Free")
+  id                 String     @id @default(cuid())
+  name               String?
+  email              String?    @unique
+  emailVerified      DateTime?
+  image              String?
+  subscriptionStatus String     @default("Free")
   subscriptionEndsAt DateTime?
 
+  payments Payment[]
+
   @@map("user")
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  amount    Int
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
