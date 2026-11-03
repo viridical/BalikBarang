@@ -29,6 +29,9 @@ export async function POST(req: Request) {
         customer_details: {
           email: customerEmail,
         },
+        callbacks: {
+        finish: "https://balik-barang.vercel.app/subscription",
+        },
       }),
     });
 
